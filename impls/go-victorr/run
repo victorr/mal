@@ -1,3 +1,5 @@
 #!/bin/bash
 # cd $(dirname $0)
-go run src/${STEP:-stepA_mal}/${STEP:-stepA_mal}.go "${@}"
+#go run src/${STEP:-stepA_mal}/${STEP:-stepA_mal}.go "${@}"
+cd $(dirname $0)/src/${STEP:-stepA_mal}
+go run .
