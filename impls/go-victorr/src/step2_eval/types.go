@@ -18,7 +18,7 @@ type MalObject interface {
 
 type MalNumber interface {
 	MalObject
-	Value() int
+	Number() int
 }
 
 type malNumber struct {
@@ -31,7 +31,7 @@ func NewMalNumber(n int) MalNumber {
 	return &malNumber{n: n}
 }
 
-func (n *malNumber) Value() int {
+func (n *malNumber) Number() int {
 	return n.n
 }
 
@@ -73,7 +73,7 @@ func (s *malString) String() string {
 
 type MalSymbol interface {
 	MalObject
-	Value() string
+	Symbol() string
 }
 
 type malSymbol struct {
@@ -86,12 +86,12 @@ func NewMalSymbol(s string) MalSymbol {
 	return &malSymbol{s: s}
 }
 
-func (s *malSymbol) Value() string {
+func (s *malSymbol) Symbol() string {
 	return s.s
 }
 
 func (s *malSymbol) String() string {
-	return s.Value()
+	return s.Symbol()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -99,7 +99,7 @@ func (s *malSymbol) String() string {
 
 type MalList interface {
 	MalObject
-	Objects() []MalObject
+	List() []MalObject
 }
 type malList struct {
 	objects []MalObject
@@ -113,14 +113,14 @@ func NewMalList(objects []MalObject) MalObject {
 	}
 }
 
-func (l *malList) Objects() []MalObject {
+func (l *malList) List() []MalObject {
 	return l.objects
 }
 
 func (l *malList) String() string {
 	var sb strings.Builder
 	sb.WriteString("(")
-	for i, o := range l.Objects() {
+	for i, o := range l.List() {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
@@ -136,8 +136,9 @@ func (l *malList) String() string {
 
 type MalVector interface {
 	MalObject
-	Objects() []MalObject
+	Vector() []MalObject
 }
+
 type malVector struct {
 	objects []MalObject
 }
@@ -150,14 +151,14 @@ func NewMalVector(objects []MalObject) MalObject {
 	}
 }
 
-func (v *malVector) Objects() []MalObject {
+func (v *malVector) Vector() []MalObject {
 	return v.objects
 }
 
 func (v *malVector) String() string {
 	var sb strings.Builder
 	sb.WriteString("[")
-	for i, o := range v.Objects() {
+	for i, o := range v.Vector() {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
@@ -173,7 +174,7 @@ func (v *malVector) String() string {
 
 type MalHashMap interface {
 	MalObject
-	Objects() []MalObject
+	HashMap() []MalObject
 }
 type malHashMap struct {
 	objects []MalObject
@@ -187,7 +188,7 @@ func NewMalHashMap(objects []MalObject) MalObject {
 	}
 }
 
-func (m *malHashMap) Objects() []MalObject {
+func (m *malHashMap) HashMap() []MalObject {
 	return m.objects
 }
 
@@ -208,4 +209,32 @@ func (m *malHashMap) String() string {
 	sb.WriteString("}")
 
 	return sb.String()
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// MalFunction
+
+type ApplyFunc func(args []MalObject) (MalObject, error)
+
+type MalFunction interface {
+	MalObject
+	Value() ApplyFunc
+}
+
+type malFunction struct {
+	f ApplyFunc
+}
+
+var _ MalFunction = (*malFunction)(nil)
+
+func NewMalFunction(f ApplyFunc) MalObject {
+	return &malFunction{f: f}
+}
+
+func (f *malFunction) Value() ApplyFunc {
+	return f.f
+}
+
+func (f *malFunction) String() string {
+	return "#function"
 }
