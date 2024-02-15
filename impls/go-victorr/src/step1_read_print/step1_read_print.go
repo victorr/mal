@@ -57,12 +57,15 @@ func rep() error {
 	for {
 		fmt.Print("user> ")
 		in, err := m.Read()
-		if err == ErrMalEof {
+		// if err == ErrMalEof {
+		// 	fmt.Printf("error: %s\n", err)
+		// } else
+		if err != nil {
+			// return err
 			fmt.Printf("error: %s\n", err)
-		} else if err != nil {
-			return err
+		} else {
+			m.Print(m.Eval(in))
 		}
-		m.Print(m.Eval(in))
 	}
 }
 
