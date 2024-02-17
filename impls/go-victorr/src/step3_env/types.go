@@ -214,25 +214,42 @@ func (m *malHashMap) String() string {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // MalFunction
 
-type ApplyFunc func(args []MalObject) (MalObject, error)
+type ApplyFunc func(env MalEnv, args []MalObject) (MalObject, error)
+
+type SpecialForm uint
+
+const (
+	NotSpecialForm SpecialForm = iota
+	DefSpecialForm
+	LetSpecialForm
+)
 
 type MalFunction interface {
 	MalObject
-	Value() ApplyFunc
+	Function() ApplyFunc
+	SpecialForm() SpecialForm
 }
 
 type malFunction struct {
-	f ApplyFunc
+	f           ApplyFunc
+	specialForm SpecialForm
 }
 
 var _ MalFunction = (*malFunction)(nil)
 
-func NewMalFunction(f ApplyFunc) MalObject {
-	return &malFunction{f: f}
+func NewMalFunction(f ApplyFunc, specialForm SpecialForm) MalObject {
+	return &malFunction{
+		f:           f,
+		specialForm: specialForm,
+	}
 }
 
-func (f *malFunction) Value() ApplyFunc {
+func (f *malFunction) Function() ApplyFunc {
 	return f.f
+}
+
+func (f *malFunction) SpecialForm() SpecialForm {
+	return f.specialForm
 }
 
 func (f *malFunction) String() string {

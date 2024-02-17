@@ -21,7 +21,7 @@ var (
 type mal struct {
 	scanner *bufio.Scanner
 	eof     bool
-	env     map[string]MalObject
+	env     MalEnv
 }
 
 var _ Mal = (*mal)(nil)
@@ -34,13 +34,22 @@ func newMal() *mal {
 	}
 }
 
-func newEnv() map[string]MalObject {
-	env := make(map[string]MalObject)
+func newEnv() MalEnv {
+	env := NewMalEnv(nil)
 
-	env["+"] = NewMalFunction(primitiveAdd)
-	env["-"] = NewMalFunction(primitiveSubtract)
-	env["*"] = NewMalFunction(primitiveMultiply)
-	env["/"] = NewMalFunction(primitiveDivide)
+	add := func(s string, f ApplyFunc) {
+		env.Set(NewMalSymbol(s), NewMalFunction(f, NotSpecialForm))
+	}
+	addSpecial := func(s string, f ApplyFunc, specialForm SpecialForm) {
+		env.Set(NewMalSymbol(s), NewMalFunction(f, specialForm))
+	}
+
+	add("+", primitiveAdd)
+	add("-", primitiveSubtract)
+	add("*", primitiveMultiply)
+	add("/", primitiveDivide)
+	addSpecial("def!", primitiveDef, DefSpecialForm)
+	addSpecial("let*", primitiveLet, LetSpecialForm)
 
 	return env
 }
@@ -54,7 +63,7 @@ func (m *mal) Read() (MalObject, error) {
 }
 
 func (m *mal) Eval(object MalObject) (MalObject, error) {
-	fmt.Printf("Eval(%T %s)\n", object, object)
+	// fmt.Printf("Eval(%T %s)\n", object, object)
 	switch object.(type) {
 	case MalList:
 		// fmt.Printf("Eval() a list: %s\n", object)
@@ -65,7 +74,7 @@ func (m *mal) Eval(object MalObject) (MalObject, error) {
 		if err != nil {
 			return nil, err
 		}
-		return m.Apply(f, args)
+		return m.Apply(m.env, f, args)
 
 	default:
 		// fmt.Printf("Eval() not a list: %T %s\n", object, object)
@@ -76,7 +85,6 @@ func (m *mal) Eval(object MalObject) (MalObject, error) {
 
 		return evaluated, nil
 	}
-
 }
 
 func (m *mal) evalAst(ast MalObject) (MalObject, []MalObject, error) {
@@ -84,26 +92,68 @@ func (m *mal) evalAst(ast MalObject) (MalObject, []MalObject, error) {
 
 	case MalSymbol:
 		//fmt.Printf("evalAst symbol %s, ret %s", ast, m.env[ast])
-		symbol := ast.(MalSymbol).Symbol()
-		if strings.HasPrefix(symbol, ":") {
+		symbol := ast.(MalSymbol)
+		if strings.HasPrefix(symbol.Symbol(), ":") {
 			return ast, nil, nil
 		}
-		return m.env[symbol], nil, nil
+		value, err := m.env.Get(symbol)
+		if err != nil {
+			return nil, nil, err
+		}
+		return value, nil, nil
 
 	case MalList:
+		// Special forms:
+		// (def! symbol value) -- (setq symbol value)
+		// (let* (s1 v1 s2 v2) body)
+
 		list := ast.(MalList)
 		if len(list.List()) == 0 {
 			return ast, nil, nil
 		}
-		var evaluated []MalObject
-		for _, o := range list.List() {
-			e, err := m.Eval(o)
+		forms := list.List()
+
+		funObject, err := m.Eval(forms[0])
+		if err != nil {
+			return nil, nil, err
+		}
+		fun, isFunction := funObject.(MalFunction)
+		if !isFunction {
+			return nil, nil, fmt.Errorf("expected a function but got %T", funObject)
+		}
+
+		formIndex := 1
+		var args []MalObject
+
+		switch fun.SpecialForm() {
+		case NotSpecialForm:
+			// nothing to do
+
+		case DefSpecialForm:
+			args = append(args, forms[formIndex])
+			formIndex++
+
+		case LetSpecialForm:
+			// Need to evaluate form at index 1 to make a new environment
+			// Need to evaluate rest of the forms with the new environment
+			args = append(args, forms[formIndex:]...)
+			formIndex = len(forms)
+
+			fun = NewMalFunction(m.letSpecialForm, NotSpecialForm).(MalFunction)
+
+		default:
+			return nil, nil, fmt.Errorf("unsupported special form: %v", fun.SpecialForm())
+		}
+
+		for index := formIndex; index < len(forms); index++ {
+			object, err := m.Eval(forms[index])
 			if err != nil {
 				return nil, nil, err
 			}
-			evaluated = append(evaluated, e)
+			args = append(args, object)
 		}
-		return evaluated[0], evaluated[1:], nil
+
+		return fun, args, nil
 
 	case MalVector:
 		vector := ast.(MalVector)
@@ -136,13 +186,70 @@ func (m *mal) evalAst(ast MalObject) (MalObject, []MalObject, error) {
 	}
 }
 
-func (m *mal) Apply(f MalObject, args []MalObject) (MalObject, error) {
+func (m *mal) letSpecialForm(env MalEnv, args []MalObject) (MalObject, error) {
+	m.env = NewMalEnv(env)
+	defer func() {
+		m.env = env
+	}()
+
+	err := m.makeLetEnv(args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	var ret MalObject
+	for index := 1; index < len(args); index++ {
+		var err error
+		ret, err = m.Eval(args[index])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ret, nil
+}
+
+func (m *mal) makeLetEnv(form MalObject) error {
+	list, isList := form.(MalList)
+	vector, isVector := form.(MalVector)
+	if !(isList || isVector) {
+		return fmt.Errorf("expected a list of bindings for let*, but got %T", form)
+	}
+	var objects []MalObject
+	if isList {
+		objects = list.List()
+	}
+	if isVector {
+		objects = vector.Vector()
+	}
+
+	if len(objects)%2 == 1 {
+		return fmt.Errorf("expected a list of bindings for let*, but got %d forms", len(objects))
+	}
+
+	for index := 0; index < len(objects); index += 2 {
+		key := objects[index]
+		value := objects[index+1]
+
+		symbol, ok := key.(MalSymbol)
+		if !ok {
+			return fmt.Errorf("expected a MalSymbol in let* binding, bug got %T", key)
+		}
+		evaluated, err := m.Eval(value)
+		if err != nil {
+			return err
+		}
+		m.env.Set(symbol, evaluated)
+	}
+	return nil
+}
+
+func (m *mal) Apply(env MalEnv, f MalObject, args []MalObject) (MalObject, error) {
 	fun, ok := f.(MalFunction)
 	if !ok {
 		return nil, fmt.Errorf("expected a MalFunction but got a %T", f)
 	}
 
-	return fun.Value()(args)
+	return fun.Function()(env, args)
 }
 
 func (m *mal) Print(object MalObject) error {
