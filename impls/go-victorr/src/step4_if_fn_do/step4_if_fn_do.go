@@ -27,14 +27,16 @@ type mal struct {
 var _ Mal = (*mal)(nil)
 
 func newMal() *mal {
-	return &mal{
+	ret := &mal{
 		scanner: bufio.NewScanner(os.Stdin),
 		eof:     false,
-		env:     newEnv(),
 	}
+	ret.env = ret.newEnv()
+
+	return ret
 }
 
-func newEnv() MalEnv {
+func (m *mal) newEnv() MalEnv {
 	env := NewMalEnv(nil)
 
 	add := func(s string, f ApplyFunc) {
@@ -48,8 +50,46 @@ func newEnv() MalEnv {
 	add("-", primitiveSubtract)
 	add("*", primitiveMultiply)
 	add("/", primitiveDivide)
+	add("<", primitiveNumberComparison("<", func(l MalNumber, r MalNumber) bool {
+		return l.Number() < r.Number()
+	}))
+	add("<=", primitiveNumberComparison("<=", func(l MalNumber, r MalNumber) bool {
+		return l.Number() <= r.Number()
+	}))
+	add(">", primitiveNumberComparison(">", func(l MalNumber, r MalNumber) bool {
+		return l.Number() > r.Number()
+	}))
+	add(">=", primitiveNumberComparison(">=", func(l MalNumber, r MalNumber) bool {
+		return l.Number() >= r.Number()
+	}))
+	add("list", primitiveList)
+	add("list?", primitivePredicate(func(o MalObject) (bool, error) {
+		_, ok := o.(MalList)
+		return ok, nil
+	}))
+	add("empty?", primitivePredicate(func(o MalObject) (bool, error) {
+		list, isList := o.(MalList)
+		vector, isVector := o.(MalVector)
+		if !(isList || isVector) {
+			return false, fmt.Errorf("expected a MalList or a MalVector but got %T", o)
+		}
+		if isList {
+			return len(list.List()) == 0, nil
+		}
+		return len(vector.Vector()) == 0, nil
+	}))
+	add("count", primitiveCount)
+	add("=", primitiveEquals)
+	add("prn", primitivePrn)
+	add("println", primitivePrintln)
+	add("pr-str", primitivePrStr)
+	add("str", primitiveStr)
+
 	addSpecial("def!", primitiveDef, DefSpecialForm)
 	addSpecial("let*", primitiveLet, LetSpecialForm)
+	addSpecial("if", m.ifSpecialForm, IfSpecialForm)
+	addSpecial("do", m.doSpecialForm, IfSpecialForm)
+	addSpecial("fn*", m.fnSpecialForm, IfSpecialForm)
 
 	return env
 }
@@ -141,6 +181,10 @@ func (m *mal) evalAst(ast MalObject) (MalObject, []MalObject, error) {
 
 			fun = NewMalFunction(m.letSpecialForm, NotSpecialForm).(MalFunction)
 
+		case IfSpecialForm:
+			args = append(args, forms[formIndex:]...)
+			formIndex = len(forms)
+
 		default:
 			return nil, nil, fmt.Errorf("unsupported special form: %v", fun.SpecialForm())
 		}
@@ -184,6 +228,119 @@ func (m *mal) evalAst(ast MalObject) (MalObject, []MalObject, error) {
 	default:
 		return ast, nil, nil
 	}
+}
+
+func (m *mal) ifSpecialForm(_ MalEnv, args []MalObject) (MalObject, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("wrong number of elements for if: %d", len(args))
+	}
+	cond := args[0]
+	ifTrue := args[1]
+	ifFalse := MalObject(MalNil)
+	if len(args) >= 3 {
+		ifFalse = args[2]
+	}
+
+	result, err := m.Eval(cond)
+	if err != nil {
+		return nil, err
+	}
+	if IsTrue(result) {
+		return m.Eval(ifTrue)
+	}
+	return m.Eval(ifFalse)
+}
+
+func (m *mal) doSpecialForm(env MalEnv, args []MalObject) (MalObject, error) {
+	var ret MalObject
+	var err error
+	for _, arg := range args {
+		ret, err = m.Eval(arg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ret, nil
+}
+
+// fnSpecialForm, fn*: Return a new function closure. The body of that closure does the following:
+//
+// Create a new environment using env (closed over from outer scope) as the outer parameter, the
+// first parameter (second list element of ast from the outer scope) as the binds parameter, and the
+// parameters to the closure as the exprs parameter.
+//
+// Call EVAL on the second parameter (third list element of ast from outer scope), using the new
+// environment. Use the result as the return value of the closure.
+func (m *mal) fnSpecialForm(env MalEnv, args []MalObject) (MalObject, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("wrong number of arguments for fn*: %d", len(args))
+	}
+	var binds []MalObject
+	if bindList, ok := args[0].(MalList); ok {
+		binds = bindList.List()
+	} else if bindVector, ok := args[0].(MalVector); ok {
+		binds = bindVector.Vector()
+	} else {
+		return nil, errWrongType("MalList or MalVector", args[0])
+	}
+	for _, bind := range binds {
+		if _, isSymbol := bind.(MalSymbol); !isSymbol {
+			return nil, errWrongType("MalSymbol", bind)
+		}
+	}
+	body := args[1:]
+
+	closure := m.env
+	fn := func(env MalEnv, args []MalObject) (MalObject, error) {
+		return m.fnClosure(closure, env, binds, body, args)
+	}
+	//fmt.Printf("closure: %s\n", closure)
+	return NewMalFunction(fn, NotSpecialForm), nil
+}
+
+func (m *mal) fnClosure(closure, env MalEnv, binds, body, args []MalObject) (MalObject, error) {
+	// fmt.Printf("closure: %s\n", closure)
+	// fmt.Printf("env: %s\n", env)
+
+	// Build the apply environment
+	applyEnv := NewMalEnv(closure)
+	bindRest := false
+	for index := 0; index < len(binds); index++ {
+		bind := binds[index].(MalSymbol) // caller verified it is a symbol
+		switch {
+		case bind.Symbol() == "&":
+			bindRest = true
+			continue
+
+		case bindRest:
+			var rest []MalObject
+			if index-1 < len(args) {
+				rest = args[index-1:]
+			}
+			applyEnv.Set(bind, NewMalList(rest))
+			break
+
+		case index < len(args):
+			applyEnv.Set(bind, args[index])
+
+		default:
+			applyEnv.Set(bind, MalNil)
+		}
+	}
+
+	m.env = applyEnv
+	defer func() {
+		m.env = env
+	}()
+	var ret MalObject
+	var err error
+	for _, form := range body {
+		ret, err = m.Eval(form)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ret, nil
 }
 
 func (m *mal) letSpecialForm(env MalEnv, args []MalObject) (MalObject, error) {
@@ -264,6 +421,15 @@ func (m *mal) Print(object MalObject) error {
 func rep() error {
 	m := newMal()
 
+	{
+		not, err := ReadStr("(def! not (fn* (a) (if a false true)))")
+		if err == nil {
+			_, err = m.Eval(not)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	for {
 		fmt.Print("user> ")
 		in, err := m.Read()

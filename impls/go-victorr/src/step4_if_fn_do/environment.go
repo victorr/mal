@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type MalEnv interface {
 	MalObject
@@ -20,6 +23,14 @@ func NewMalEnv(outer MalEnv) MalEnv {
 		outer: outer,
 		env:   make(map[string]MalObject),
 	}
+}
+
+func (e *malEnv) Equals(other MalObject) MalBoolean {
+	// oe, ok := other.(MalEnv)
+	// if !ok {
+	// 	return MalFalse
+	// }
+	return MalFalse
 }
 
 func (e *malEnv) Set(symbol MalSymbol, value MalObject) MalObject {
@@ -44,5 +55,12 @@ func errSymbolNotFound(symbol string) error {
 }
 
 func (e *malEnv) String() string {
-	return "#environment"
+	var sb strings.Builder
+	sb.WriteString("#<environment\n")
+	for k, v := range e.env {
+		sb.WriteString(fmt.Sprintf("\t%s => %s\n", k, v))
+	}
+	sb.WriteString(">")
+	//return "#<environment>"
+	return sb.String()
 }

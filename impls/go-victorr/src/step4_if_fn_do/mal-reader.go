@@ -128,6 +128,15 @@ func ReadAtom(r MalReader) (MalObject, error) {
 	case strings.HasPrefix(token, "\""): //stringRe.MatchString(token):
 		return ReadMalString(token)
 
+	case token == "nil":
+		return MalNil, nil
+
+	case token == "true":
+		return MalTrue, nil
+
+	case token == "false":
+		return MalFalse, nil
+
 	default:
 		// symbols
 		return NewMalSymbol(token), nil
