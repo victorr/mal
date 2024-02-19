@@ -184,11 +184,7 @@ func primitivePrintln(env MalEnv, args []MalObject) (MalObject, error) {
 		if index > 0 {
 			sb.WriteByte(' ')
 		}
-		if ms, ok := arg.(MalString); ok {
-			sb.WriteString(ms.Value())
-		} else {
-			sb.WriteString(arg.String())
-		}
+		sb.WriteString(arg.Print(false))
 	}
 	fmt.Println(sb.String())
 	return MalNil, nil
@@ -197,11 +193,7 @@ func primitivePrintln(env MalEnv, args []MalObject) (MalObject, error) {
 func primitiveStr(env MalEnv, args []MalObject) (MalObject, error) {
 	var sb strings.Builder
 	for _, arg := range args {
-		if ms, ok := arg.(MalString); ok {
-			sb.WriteString(ms.Value())
-		} else {
-			sb.WriteString(arg.String())
-		}
+		sb.WriteString(arg.Print(false))
 	}
 
 	return NewMalString(sb.String()), nil
@@ -210,7 +202,7 @@ func primitiveStr(env MalEnv, args []MalObject) (MalObject, error) {
 func primitivePrStr(_ MalEnv, args []MalObject) (MalObject, error) {
 	var s []string
 	for _, arg := range args {
-		s = append(s, arg.String())
+		s = append(s, arg.Print(true))
 	}
 
 	return NewMalString(strings.Join(s, " ")), nil

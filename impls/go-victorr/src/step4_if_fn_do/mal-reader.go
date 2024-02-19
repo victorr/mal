@@ -153,12 +153,10 @@ func ReadMalString(token string) (MalString, error) {
 	s := strings.TrimPrefix(token, quote)
 	s = strings.TrimSuffix(s, quote)
 
-	//fmt.Printf("token=%s, tp=%s ts=%s\n", token, tp, ts)
-
-	s = strings.ReplaceAll(s, `\\`, "\u029e")
+	s = strings.ReplaceAll(s, `\\`, "\u029e") // lifted from the JS implementation (or was it the Java one?)
 	s = strings.ReplaceAll(s, `\"`, `"`)
 	s = strings.ReplaceAll(s, `\n`, "\n")
-	s = strings.ReplaceAll(s, "\u029e", `\\`)
+	s = strings.ReplaceAll(s, "\u029e", `\`)
 
 	return NewMalString(s), nil
 }

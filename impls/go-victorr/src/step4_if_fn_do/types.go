@@ -11,7 +11,7 @@ import (
 
 type MalObject interface {
 	Equals(MalObject) MalBoolean
-	String() string
+	Print(readably bool) string
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -32,7 +32,7 @@ func (n *malNil) Equals(other MalObject) MalBoolean {
 	return MalFalse
 }
 
-func (n *malNil) String() string {
+func (n *malNil) Print(_ bool) string {
 	return "nil"
 }
 
@@ -70,7 +70,7 @@ func (b *malBoolean) Equals(other MalObject) MalBoolean {
 	return MalFalse
 }
 
-func (b *malBoolean) String() string {
+func (b *malBoolean) Print(_ bool) string {
 	if b.b {
 		return "true"
 	}
@@ -113,7 +113,7 @@ func (n *malNumber) Equals(other MalObject) MalBoolean {
 	return MalFalse
 }
 
-func (n *malNumber) String() string {
+func (n *malNumber) Print(_ bool) string {
 	return strconv.Itoa(n.n)
 }
 
@@ -146,11 +146,18 @@ func (s *malString) Equals(other MalObject) MalBoolean {
 	return MalFalse
 }
 
-func (s *malString) String() string {
-	ret := strings.ReplaceAll(s.Value(), `"`, `\"`)
-	ret = strings.ReplaceAll(ret, "\n", `\n`)
+func (s *malString) Print(readably bool) string {
+	if readably {
+		return fmt.Sprintf("\"%s\"", escapeString(s.Value()))
+	}
+	return s.s
+}
 
-	return fmt.Sprintf("\"%s\"", ret)
+func escapeString(s string) string {
+	ret := strings.ReplaceAll(s, `\`, `\\`)
+	ret = strings.ReplaceAll(ret, `"`, `\"`)
+	ret = strings.ReplaceAll(ret, "\n", `\n`)
+	return ret
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +189,7 @@ func (s *malSymbol) Symbol() string {
 	return s.s
 }
 
-func (s *malSymbol) String() string {
+func (s *malSymbol) Print(_ bool) string {
 	return s.Symbol()
 }
 
@@ -234,14 +241,14 @@ func listEquals(left []MalObject, right MalObject) MalBoolean {
 	return MalTrue
 }
 
-func (l *malList) String() string {
+func (l *malList) Print(readably bool) string {
 	var sb strings.Builder
 	sb.WriteString("(")
 	for i, o := range l.List() {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(o.String())
+		sb.WriteString(o.Print(readably))
 	}
 	sb.WriteString(")")
 
@@ -276,14 +283,14 @@ func (v *malVector) Equals(other MalObject) MalBoolean {
 	return listEquals(v.Vector(), other)
 }
 
-func (v *malVector) String() string {
+func (v *malVector) Print(readably bool) string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i, o := range v.Vector() {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(o.String())
+		sb.WriteString(o.Print(readably))
 	}
 	sb.WriteString("]")
 
@@ -329,7 +336,7 @@ func (m *malHashMap) Equals(other MalObject) MalBoolean {
 	return MalTrue
 }
 
-func (m *malHashMap) String() string {
+func (m *malHashMap) Print(readably bool) string {
 	var sb strings.Builder
 	sb.WriteString("{")
 	for i := 0; i < len(m.objects); i += 2 {
@@ -339,9 +346,9 @@ func (m *malHashMap) String() string {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(key.String())
+		sb.WriteString(key.Print(readably))
 		sb.WriteString(" ")
-		sb.WriteString(value.String())
+		sb.WriteString(value.Print(readably))
 	}
 	sb.WriteString("}")
 
@@ -396,6 +403,7 @@ func (f *malFunction) Equals(other MalObject) MalBoolean {
 	}
 	return MalFalse
 }
-func (f *malFunction) String() string {
+
+func (f *malFunction) Print(_ bool) string {
 	return "#<function>"
 }

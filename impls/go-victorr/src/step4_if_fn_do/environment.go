@@ -6,7 +6,6 @@ import (
 )
 
 type MalEnv interface {
-	MalObject
 	Set(MalSymbol, MalObject) MalObject
 	Get(MalSymbol) (MalObject, error)
 }
